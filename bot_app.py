@@ -1,0 +1,497 @@
+import json
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+# Токен бота
+BOT_TOKEN = '8535785730:AAH8VhiUw4FoOm1vBx6pJZWdiGkK8WHQHbc'
+
+class CurrencyBot:
+    def __init__(self):
+        self.api_url = "https://www.cbr-xml-daily.ru/daily_json.js"
+    
+    def get_rates(self):
+        """Получает курсы валют"""
+        try:
+            import urllib.request
+            with urllib.request.urlopen(self.api_url, timeout=10) as r:
+                data = json.loads(r.read().decode())
+                
+                rates = {}
+                for code in ['USD', 'EUR', 'CNY']:
+                    if code in data.get('Valute', {}):
+                        val = data['Valute'][code]
+                        rates[code] = {
+                            'value': val['Value'],
+                            'nominal': val.get('Nominal', 1)
+                        }
+                return rates
+        except:
+            return None
+    
+    def send_message(self, chat_id, text):
+        """Отправляет сообщение"""
+        try:
+            import urllib.request
+            import urllib.parse
+            
+            params = {
+                'chat_id': str(chat_id),
+                'text': text,
+                'parse_mode': 'HTML'
+            }
+            
+            query = urllib.parse.urlencode(params)
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage?{query}"
+            urllib.request.urlopen(url, timeout=10)
+            return True
+        except:
+            return False
+    
+    def convert(self, amount, currency):
+        """Конвертирует валюту"""
+        rates = self.get_rates()
+        if not rates or currency not in rates:
+            return None
+        
+        rate = rates[currency]
+        result = amount * (rate['value'] / rate['nominal'])
+        return round(result, 2)
+
+bot = CurrencyBot()
+
+@app.route('/')
+def home():
+    """Главная страница"""
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Бот курсов валют</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                margin: 0;
+                padding: 20px;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .card {
+                background: white;
+                border-radius: 20px;
+                padding: 40px;
+                max-width: 500px;
+                width: 100%;
+                text-align: center;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            }
+            .icon {
+                font-size: 4em;
+                margin-bottom: 20px;
+            }
+            h1 {
+                color: #2d3748;
+                margin: 0 0 10px 0;
+                font-size: 1.8em;
+            }
+            .status {
+                background: #48bb78;
+                color: white;
+                padding: 8px 20px;
+                border-radius: 20px;
+                display: inline-block;
+                margin: 15px 0;
+                font-size: 0.9em;
+            }
+            .info {
+                color: #718096;
+                line-height: 1.6;
+                margin: 20px 0;
+            }
+            .btn {
+                display: inline-block;
+                background: #667eea;
+                color: white;
+                text-decoration: none;
+                padding: 14px 28px;
+                border-radius: 10px;
+                margin: 10px 5px;
+                font-weight: 500;
+                transition: all 0.3s;
+            }
+            .btn:hover {
+                background: #5a67d8;
+                transform: translateY(-2px);
+            }
+            .commands {
+                background: #f7fafc;
+                border-radius: 10px;
+                padding: 20px;
+                margin: 25px 0;
+            }
+            code {
+                background: #edf2f7;
+                padding: 5px 10px;
+                border-radius: 5px;
+                font-family: monospace;
+                font-size: 0.9em;
+                color: #2d3748;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <div class="icon">🏦💱</div>
+            <h1>Бот курсов валют</h1>
+            <div class="status">🟢 Активен</div>
+            
+            <div class="info">
+                Бот для получения актуальных курсов валют<br>и конвертации в реальном времени
+            </div>
+            
+            <div>
+                <a href="/activate" class="btn">🔗 Активировать бота</a>
+                <a href="/check" class="btn">📊 Проверить статус</a>
+            </div>
+            
+            <div class="commands">
+                <p><strong>Команды в Telegram:</strong></p>
+                <p><code>/start</code> - начало работы</p>
+                <p><code>/usd</code> - курс доллара</p>
+                <p><code>/eur</code> - курс евро</p>
+                <p><code>/cny</code> - курс юаня</p>
+                <p><code>/convert 100 USD</code> - конвертер</p>
+            </div>
+            
+            <div style="color: #a0aec0; font-size: 0.9em; margin-top: 20px;">
+                Данные: Центробанк РФ • Режим: Webhook
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+@app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    """Обработчик webhook"""
+    if request.method == 'POST':
+        try:
+            data = request.get_json()
+            
+            if 'message' in data:
+                msg = data['message']
+                chat_id = msg['chat']['id']
+                text = msg.get('text', '').strip()
+                
+                print(f"Command: {text}")
+                
+                # Обработка команд
+                if text == '/start':
+                    response = """<b>💱 Бот курсов валют</b>
+
+<b>Доступные команды:</b>
+• /usd — курс доллара
+• /eur — курс евро
+• /cny — курс юаня
+• /all — все курсы
+• /convert 100 USD — конвертер
+
+<b>Примеры:</b>
+<code>/usd</code>
+<code>/convert 500 EUR</code>
+<code>/convert 1000 CNY</code>
+
+<i>Данные предоставляются Центробанком РФ</i>"""
+                    bot.send_message(chat_id, response)
+                
+                elif text == '/usd':
+                    rates = bot.get_rates()
+                    if rates and 'USD' in rates:
+                        usd = rates['USD']
+                        bot.send_message(chat_id, f"🇺🇸 <b>Доллар (USD)</b>\nКурс: <b>{usd['value']:.2f} ₽</b>")
+                    else:
+                        bot.send_message(chat_id, "❌ Не удалось получить курс")
+                
+                elif text == '/eur':
+                    rates = bot.get_rates()
+                    if rates and 'EUR' in rates:
+                        eur = rates['EUR']
+                        bot.send_message(chat_id, f"🇪🇺 <b>Евро (EUR)</b>\nКурс: <b>{eur['value']:.2f} ₽</b>")
+                    else:
+                        bot.send_message(chat_id, "❌ Не удалось получить курс")
+                
+                elif text == '/cny':
+                    rates = bot.get_rates()
+                    if rates and 'CNY' in rates:
+                        cny = rates['CNY']
+                        bot.send_message(chat_id, f"🇨🇳 <b>Юань (CNY)</b>\nКурс: <b>{cny['value']:.2f} ₽</b>")
+                    else:
+                        bot.send_message(chat_id, "❌ Не удалось получить курс")
+                
+                elif text == '/all':
+                    rates = bot.get_rates()
+                    if rates:
+                        response = "<b>💱 Курсы валют</b>\n\n"
+                        for code, data in rates.items():
+                            emoji = {'USD': '🇺🇸', 'EUR': '🇪🇺', 'CNY': '🇨🇳'}.get(code, '💰')
+                            response += f"{emoji} {code}: <b>{data['value']:.2f} ₽</b>\n"
+                        bot.send_message(chat_id, response)
+                    else:
+                        bot.send_message(chat_id, "❌ Не удалось получить курсы")
+                
+                elif text.startswith('/convert'):
+                    try:
+                        parts = text.split()
+                        if len(parts) == 3:
+                            amount = float(parts[1])
+                            currency = parts[2].upper()
+                            
+                            result = bot.convert(amount, currency)
+                            if result:
+                                formatted = f"{result:,.2f}".replace(',', ' ')
+                                bot.send_message(chat_id, 
+                                    f"💱 <b>Конвертация</b>\n\n"
+                                    f"{amount} {currency} = <b>{formatted} RUB</b>")
+                            else:
+                                bot.send_message(chat_id, "❌ Ошибка конвертации")
+                        else:
+                            bot.send_message(chat_id, "❌ Формат: /convert 100 USD")
+                    except:
+                        bot.send_message(chat_id, "❌ Ошибка в команде")
+                
+                elif text and text.startswith('/'):
+                    bot.send_message(chat_id, 
+                        "🤖 <b>Используйте команды:</b>\n\n"
+                        "/usd — курс доллара\n"
+                        "/eur — курс евро\n"
+                        "/cny — курс юаня\n"
+                        "/all — все курсы\n"
+                        "/convert — конвертер\n\n"
+                        "<i>Пример: /convert 100 USD</i>")
+            
+            return jsonify({'ok': True})
+            
+        except Exception as e:
+            print(f"Webhook error: {e}")
+            return jsonify({'error': 'Internal error'}), 500
+    
+    return jsonify({'error': 'Method not allowed'}), 405
+
+@app.route('/activate')
+def activate():
+    """Активация webhook"""
+    import urllib.request
+    
+    try:
+        # Автоматически определяем домен
+        webhook_url = f"https://moongohard271.pythonanywhere.com/webhook/{BOT_TOKEN}"
+        set_url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={webhook_url}"
+        
+        with urllib.request.urlopen(set_url) as r:
+            result = json.loads(r.read().decode())
+            
+            if result.get('ok'):
+                return """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <title>Бот активирован</title>
+                    <style>
+                        body {
+                            font-family: -apple-system, sans-serif;
+                            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+                            margin: 0;
+                            padding: 20px;
+                            min-height: 100vh;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                        }
+                        .card {
+                            background: white;
+                            border-radius: 20px;
+                            padding: 40px;
+                            max-width: 500px;
+                            text-align: center;
+                            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                        }
+                        .success {
+                            font-size: 4em;
+                            color: #48bb78;
+                            margin-bottom: 20px;
+                        }
+                        h1 {
+                            color: #2d3748;
+                            margin: 0 0 15px 0;
+                        }
+                        .btn {
+                            display: inline-block;
+                            background: #48bb78;
+                            color: white;
+                            text-decoration: none;
+                            padding: 12px 30px;
+                            border-radius: 10px;
+                            margin-top: 20px;
+                            font-weight: 500;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="card">
+                        <div class="success">✅</div>
+                        <h1>Бот активирован</h1>
+                        <p>Webhook успешно установлен.<br>Бот готов к работе в Telegram.</p>
+                        <a href="/" class="btn">Вернуться на главную</a>
+                    </div>
+                </body>
+                </html>
+                """
+            else:
+                error = result.get('description', 'Неизвестная ошибка')
+                return f"""
+                <!DOCTYPE html>
+                <html>
+                <body style="padding: 40px; text-align: center; font-family: sans-serif;">
+                    <h1 style="color: #e53e3e;">❌ Ошибка</h1>
+                    <p>{error}</p>
+                    <a href="/" style="color: #667eea;">← На главную</a>
+                </body>
+                </html>
+                """
+    
+    except Exception as e:
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="padding: 40px; text-align: center; font-family: sans-serif;">
+            <h1 style="color: #e53e3e;">❌ Ошибка</h1>
+            <p>{str(e)}</p>
+            <a href="/" style="color: #667eea;">← На главную</a>
+        </body>
+        </html>
+        """
+
+@app.route('/check')
+def check():
+    """Проверка статуса"""
+    import urllib.request
+    
+    try:
+        # Проверяем бота
+        check_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getMe"
+        with urllib.request.urlopen(check_url) as r:
+            bot_info = json.loads(r.read().decode())
+        
+        # Проверяем webhook
+        webhook_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo"
+        with urllib.request.urlopen(webhook_url) as r:
+            webhook_info = json.loads(r.read().decode())
+        
+        # Формируем ответ
+        bot_status = "🟢 Активен" if bot_info.get('ok') else "🔴 Ошибка"
+        webhook_status = "🟢 Установлен" if webhook_info.get('ok') and webhook_info.get('result', {}).get('url') else "🔴 Не установлен"
+        
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Статус системы</title>
+            <style>
+                body {{
+                    font-family: -apple-system, sans-serif;
+                    background: #f7fafc;
+                    margin: 0;
+                    padding: 20px;
+                    min-height: 100vh;
+                }}
+                .container {{
+                    max-width: 600px;
+                    margin: 0 auto;
+                    background: white;
+                    border-radius: 16px;
+                    padding: 30px;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                }}
+                h1 {{
+                    color: #2d3748;
+                    text-align: center;
+                    margin-bottom: 30px;
+                }}
+                .status-row {{
+                    display: flex;
+                    justify-content: space-between;
+                    padding: 15px 0;
+                    border-bottom: 1px solid #e2e8f0;
+                }}
+                .status-row:last-child {{
+                    border-bottom: none;
+                }}
+                .status-name {{
+                    color: #4a5568;
+                }}
+                .status-value {{
+                    font-weight: 500;
+                }}
+                .good {{ color: #48bb78; }}
+                .bad {{ color: #e53e3e; }}
+                .btn {{
+                    display: block;
+                    text-align: center;
+                    background: #667eea;
+                    color: white;
+                    text-decoration: none;
+                    padding: 14px;
+                    border-radius: 10px;
+                    margin-top: 30px;
+                    font-weight: 500;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>📊 Статус системы</h1>
+                
+                <div class="status-row">
+                    <span class="status-name">Telegram API</span>
+                    <span class="status-value good">{bot_status}</span>
+                </div>
+                
+                <div class="status-row">
+                    <span class="status-name">Webhook</span>
+                    <span class="status-value {'good' if webhook_status.startswith('🟢') else 'bad'}">{webhook_status}</span>
+                </div>
+                
+                <div class="status-row">
+                    <span class="status-name">Режим работы</span>
+                    <span class="status-value">Webhook</span>
+                </div>
+                
+                <a href="/" class="btn">← На главную</a>
+            </div>
+        </body>
+        </html>
+        """
+    
+    except Exception as e:
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="padding: 40px; text-align: center; font-family: sans-serif;">
+            <h1 style="color: #e53e3e;">❌ Ошибка проверки</h1>
+            <p>Не удалось получить статус системы</p>
+            <a href="/" style="color: #667eea;">← На главную</a>
+        </body>
+        </html>
+        """
+
+if __name__ == '__main__':
+    app.run(debug=True)
